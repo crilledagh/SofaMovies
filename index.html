@@ -281,7 +281,8 @@
       background:var(--surface);
     }
     .card:hover { transform:scale(1.06) translateY(-4px); box-shadow:0 16px 40px rgba(0,0,0,.75); z-index:10; }
-    .card img { width:100%; aspect-ratio:2/3; object-fit:cover; display:block; transition:filter .25s; background:#1c1c1c; }
+    .card-img-wrap { position:relative; width:100%; aspect-ratio:2/3; background:#1c1c1c; overflow:hidden; }
+    .card img { width:100%; height:100%; object-fit:cover; display:block; transition:filter .25s; }
     .card:hover img { filter:brightness(.6); }
     .card-overlay {
       position:absolute; inset:0;
@@ -299,6 +300,17 @@
     .card-info { padding:.5rem .6rem .6rem; }
     .card-title { font-size:.76rem; font-weight:500; color:rgba(255,255,255,.86); display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; margin-bottom:2px; }
     .card-tag { font-size:.6rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }
+
+    /* Trailer Preview */
+    .card-trailer {
+      position:absolute; inset:0; z-index:4; background:#000;
+      opacity:0; transition:opacity .4s; pointer-events:none;
+    }
+    .card-trailer.active { opacity:1; }
+    .card-trailer iframe {
+      width:100%; height:100%; border:none;
+      transform:scale(1.35); /* Zooms in to hide YouTube UI */
+    }
 
     /* Card heart */
     .card-fav {
@@ -413,6 +425,36 @@
     /* Search grid (desktop) */
     .search-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(148px,1fr)); gap:.72rem; padding:0 2rem; }
     .search-grid .card { flex:none; }
+
+    /* Search Tabs */
+    .search-tabs {
+      display:flex; gap:.5rem; padding:1.5rem 2rem .8rem; flex-wrap:wrap;
+    }
+    .search-tab {
+      background:var(--surface2); border:1px solid rgba(255,255,255,.1);
+      color:var(--muted2); padding:.45rem 1rem; border-radius:20px;
+      font-family:'DM Sans',sans-serif; font-size:.85rem; font-weight:600; cursor:pointer;
+      transition:all .2s;
+    }
+    .search-tab:hover { background:rgba(255,255,255,.1); color:#fff; }
+    .search-tab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+    /* Person Card */
+    .person-card {
+      background:var(--surface); border-radius:var(--r); overflow:hidden;
+      cursor:pointer; transition:transform .25s; text-align:center;
+    }
+    .person-card:hover { transform:translateY(-4px); box-shadow:0 12px 30px rgba(0,0,0,.6); }
+    .person-img {
+      width:100%; aspect-ratio:1/1; object-fit:cover; background:#1c1c1c;
+      border-bottom:1px solid rgba(255,255,255,.05);
+    }
+    .person-name {
+      padding:.7rem .5rem .2rem; font-size:.8rem; font-weight:700; color:#fff;
+    }
+    .person-known {
+      padding:0 .5rem .7rem; font-size:.62rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em;
+    }
 
     .empty-state { text-align:center; padding:5rem 2rem; color:var(--muted); font-size:.9rem; }
 
@@ -783,13 +825,6 @@
     body.mobile-mode #mobileShell { display:flex; }
     #mobileShell { display:none; }
   </style>
-
-  <!-- Vercel Web Analytics -->
-  <script>
-    window.va = window.va || function () { (window.vaq = window.vaq || []).push(arguments); };
-  </script>
-  <script defer src="/_vercel/insights/script.js"></script>
-
 </head>
 <body>
 
@@ -1051,6 +1086,8 @@ let isMobile   = false;
 let mCurrentTab = 'home';
 let mHeroData   = null;
 let currentMeta = null;
+let currentSearchData = null;
+let currentSearchTab  = 'all';
 
 const CATS = [
   { title:'Trending This Week', sub:'Movies',   url:`https://api.themoviedb.org/3/trending/movie/week?api_key=${API_KEY}`, type:'movie' },
@@ -1606,21 +1643,55 @@ function createCard(item, type) {
   const inList = isInList(item.id, type);
   const card   = document.createElement('div');
   card.className = 'card';
+  
+  // Add unique ID for trailer
+  const cardId = `card-${item.id}-${type}-${Math.random().toString(36).substr(2, 5)}`;
+  card.id = cardId;
+
   card.innerHTML = `
-    <img src="${poster}" alt="${name}" loading="lazy" onerror="this.style.background='#1c1c1c'">
-    <button class="card-fav ${inList ? 'active' : ''}" aria-label="Toggle My List">
-      <svg viewBox="0 0 24 24" fill="${inList ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
-      </svg>
-    </button>
-    <div class="card-overlay">
-      <div class="card-play"><svg width="11" height="11" viewBox="0 0 24 24" fill="#000"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
-      <div class="card-name">${name}</div>
+    <div class="card-img-wrap">
+      <img src="${poster}" alt="${name}" loading="lazy" onerror="this.style.background='#1c1c1c'">
+      <div class="card-overlay">
+        <div class="card-play"><svg width="11" height="11" viewBox="0 0 24 24" fill="#000"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+        <div class="card-name">${name}</div>
+      </div>
+      <div class="card-trailer" id="trailer-${cardId}"></div>
+      <button class="card-fav ${inList ? 'active' : ''}" aria-label="Toggle My List">
+        <svg viewBox="0 0 24 24" fill="${inList ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+        </svg>
+      </button>
     </div>
     <div class="card-info">
       <div class="card-title">${name}</div>
       <span class="card-tag">${tag}</span>
     </div>`;
+
+  // Trailer Hover Logic
+  let hoverTimer;
+  card.addEventListener('mouseenter', () => {
+    hoverTimer = setTimeout(async () => {
+      const videoData = await apiFetch(`https://api.themoviedb.org/3/${type}/${item.id}/videos?api_key=${API_KEY}`);
+      const trailer = videoData?.results?.find(v => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'));
+      
+      if (trailer && document.getElementById(cardId)) {
+        const trailerWrap = document.getElementById(`trailer-${cardId}`);
+        if (trailerWrap) {
+          trailerWrap.innerHTML = `<iframe src="https://www.youtube.com/embed/${trailer.key}?autoplay=1&mute=1&controls=0&loop=1&playlist=${trailer.key}&modestbranding=1&rel=0&showinfo=0&iv_load_policy=3" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+          trailerWrap.classList.add('active');
+        }
+      }
+    }, 800);
+  });
+
+  card.addEventListener('mouseleave', () => {
+    clearTimeout(hoverTimer);
+    const trailerWrap = document.getElementById(`trailer-${cardId}`);
+    if (trailerWrap) {
+      trailerWrap.classList.remove('active');
+      setTimeout(() => { trailerWrap.innerHTML = ''; }, 400); // Let opacity transition finish
+    }
+  });
 
   card.querySelector('.card-fav').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1678,6 +1749,18 @@ async function loadCategories() {
   heroItem = null;
 
   renderContinueWatchingRow();
+
+  // 2. "Because you watched X" Row
+  const cw = getContinueWatching();
+  if (cw.length > 0) {
+    const recent = cw[0];
+    apiFetch(`https://api.themoviedb.org/3/${recent.type}/${recent.id}/recommendations?api_key=${API_KEY}`)
+      .then(data => {
+        if (data?.results?.length) {
+          renderRow({ title: `Because you watched ${recent.title}`, sub: 'Recommended for you', type: recent.type }, data.results);
+        }
+      });
+  }
 
   const skels = CATS.map(() => { const s = makeSkeleton(); mc.appendChild(s); return s; });
   const results = await Promise.all(CATS.map(c => apiFetch(c.url)));
@@ -1814,6 +1897,89 @@ function closePlayer() {
   else window.scrollTo({ top:0, behavior:'smooth' });
 }
 
+/* ════════════════════════════════════
+   SEARCH & TABS
+════════════════════════════════════ */
+function switchSearchTab(tab) {
+  currentSearchTab = tab;
+  renderSearchGrid();
+}
+
+function renderSearchGrid() {
+  const mc = $('mainContent');
+  const grid = $('searchGrid');
+  if (!grid || !currentSearchData) return;
+  
+  grid.innerHTML = '';
+  let results = currentSearchData.results || [];
+
+  if (currentSearchTab === 'movie') results = results.filter(i => i.media_type === 'movie');
+  if (currentSearchTab === 'tv') results = results.filter(i => i.media_type === 'tv');
+  if (currentSearchTab === 'person') results = results.filter(i => i.media_type === 'person');
+
+  if (!results.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1; padding:3rem 0;">No results found for this category.</div>`;
+    return;
+  }
+
+  results.forEach(i => {
+    if (currentSearchTab === 'person') {
+      // Render Person Card
+      if (!i.profile_path) return;
+      const card = document.createElement('div');
+      card.className = 'person-card';
+      card.innerHTML = `
+        <img src="${IMG}w185${i.profile_path}" class="person-img" loading="lazy">
+        <div class="person-name">${i.name}</div>
+        <div class="person-known">Known for: ${i.known_for_department || 'Acting'}</div>
+      `;
+      card.addEventListener('click', () => {
+        loadPersonCredits(i.id, i.name);
+      });
+      grid.appendChild(card);
+    } else {
+      // Render Media Card
+      if (!i.poster_path) return;
+      grid.appendChild(createCard(i, i.media_type));
+    }
+  });
+}
+
+async function loadPersonCredits(personId, personName) {
+  hideMyList();
+  const mc = $('mainContent');
+  mc.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--muted);">Loading credits for ${personName}...</div>`;
+  
+  const data = await apiFetch(`https://api.themoviedb.org/3/person/${personId}/combined_credits?api_key=${API_KEY}`);
+  mc.innerHTML = '';
+  
+  if (!data) return;
+  
+  const hdr = document.createElement('div'); hdr.style.cssText = 'padding:1.5rem 2rem .8rem;';
+  hdr.innerHTML = `<div style="font-family:'Bebas Neue',sans-serif;font-size:1.8rem;letter-spacing:.05em;color:#fff;">${personName}</div>`;
+  mc.appendChild(hdr);
+
+  // Sort by popularity and filter duplicates
+  const unique = new Map();
+  (data.cast || []).forEach(c => {
+    if (c.media_type === 'movie' || c.media_type === 'tv') {
+      if (!unique.has(c.id) || unique.get(c.id).popularity < c.popularity) {
+        unique.set(c.id, c);
+      }
+    }
+  });
+  
+  const sorted = Array.from(unique.values()).sort((a,b) => b.popularity - a.popularity);
+  
+  if (sorted.length) {
+    const grid = document.createElement('div'); grid.className = 'search-grid';
+    sorted.filter(i => i.poster_path).forEach(i => grid.appendChild(createCard(i, i.media_type)));
+    mc.appendChild(grid);
+  } else {
+    mc.innerHTML += `<div class="empty-state">No movies or shows found.</div>`;
+  }
+}
+
 async function searchContent() {
   const q = $('searchBox').value.trim();
   if (q.length < 2) { loadCategories(); return; }
@@ -1822,22 +1988,47 @@ async function searchContent() {
   const mc = $('mainContent');
   mc.innerHTML = '';
   $('heroSection').style.display = 'none';
+
   const skWrap = document.createElement('div');
   skWrap.style.cssText = 'padding:1.5rem 2rem 0;';
   skWrap.innerHTML = `<div style="font-family:'Bebas Neue',sans-serif;font-size:1.28rem;letter-spacing:.05em;margin-bottom:1rem;color:#fff;">Searching...</div>`;
   const skG = document.createElement('div'); skG.className = 'search-grid';
   for (let i=0;i<12;i++) skG.innerHTML += `<div class="skeleton-card" style="aspect-ratio:2/3;border-radius:10px;"></div>`;
   skWrap.appendChild(skG); mc.appendChild(skWrap);
+
   const data = await apiFetch(`https://api.themoviedb.org/3/search/multi?api_key=${API_KEY}&query=${encodeURIComponent(q)}`);
   skWrap.remove();
-  if (!data?.results?.length) { mc.innerHTML = `<div class="empty-state">No results for "<strong style="color:#fff;">${q}</strong>"</div>`; return; }
-  const hdr = document.createElement('div'); hdr.style.cssText = 'padding:1.5rem 2rem .8rem;';
+  
+  if (!data?.results?.length) { 
+    mc.innerHTML = `<div class="empty-state">No results for "<strong style="color:#fff;">${q}</strong>"</div>`; 
+    return; 
+  }
+  
+  currentSearchData = data;
+  currentSearchTab = 'all';
+
+  const hdr = document.createElement('div'); 
+  hdr.style.cssText = 'padding:1.5rem 2rem .2rem;';
   hdr.innerHTML = `<div style="font-family:'Bebas Neue',sans-serif;font-size:1.28rem;letter-spacing:.05em;color:#fff;">Results for "<span style="color:var(--accent);">${q}</span>"</div>`;
   mc.appendChild(hdr);
-  const grid = document.createElement('div'); grid.className = 'search-grid';
-  data.results.filter(i => i.poster_path && (i.media_type==='movie'||i.media_type==='tv'))
-    .forEach(i => grid.appendChild(createCard(i, i.media_type)));
+
+  // Search Tabs UI
+  const tabs = document.createElement('div');
+  tabs.className = 'search-tabs';
+  tabs.innerHTML = `
+    <button class="search-tab active" onclick="switchSearchTab('all')">All</button>
+    <button class="search-tab" onclick="switchSearchTab('movie')">Movies</button>
+    <button class="search-tab" onclick="switchSearchTab('tv')">TV</button>
+    <button class="search-tab" onclick="switchSearchTab('person')">People</button>
+  `;
+  mc.appendChild(tabs);
+
+  const grid = document.createElement('div'); 
+  grid.className = 'search-grid';
+  grid.id = 'searchGrid';
   mc.appendChild(grid);
+
+  renderSearchGrid();
 }
 
 window.addEventListener('scroll', () => {
